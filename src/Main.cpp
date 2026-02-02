@@ -2,6 +2,7 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,8 @@ constexpr int SCREEN_HEIGHT = TILE_SIZE * LEVEL_HEIGHT;
 constexpr size_t MAX_OBJECT_PER_TILE = 6;
 
 constexpr int NUM_LEVEL = 2;
+
+constexpr size_t MAX_HISTORY = 512;
 
 struct Vec2i {
     int x;
@@ -35,6 +38,20 @@ class Tile {
     TileType Pop() {
         assert(m_numObjects >= 1);
         return m_objects[--m_numObjects];
+    }
+
+    bool Remove(TileType type) {
+        for (int i = 0; i < m_numObjects; ++i) {
+            if (m_objects[i] == type) {
+                for (int j = i; j < m_numObjects - 1; j++) {
+                    m_objects[j] = m_objects[j + 1];
+                }
+
+                m_numObjects--;
+                return true;
+            }
+        }
+        return false;
     }
 
     bool IsEmpty() const { return m_numObjects == 0; }
@@ -140,6 +157,8 @@ class Game {
             LoadLevel(++m_levelNum);
         } else if (IsKeyPressed(KEY_P) && m_levelNum > 1) {
             LoadLevel(--m_levelNum);
+        } else if (IsKeyPressed(KEY_X)) {
+            Undo();
         }
     }
 
@@ -186,6 +205,9 @@ class Game {
         number--;
         assert(number >= 0 && number < NUM_LEVEL);
 
+        m_historyStart = 0;
+        m_historyCount = 0;
+
         m_isWin = false;
         bool hasPlayer = false;
         bool hasFlag = false;
@@ -214,6 +236,8 @@ class Game {
 
         assert(hasPlayer);
         assert(hasFlag);
+
+        SaveState();
     }
 
     static bool InBounds(int x, int y) { return x >= 0 && x < LEVEL_WIDTH && y >= 0 && y < LEVEL_HEIGHT; }
@@ -241,6 +265,8 @@ class Game {
         // if destination cell already has a rock (shouldn't happen since we scanned), block
         // but scanning should stop at first non-rock, so it's safe.
 
+        SaveState();
+
         // shift rocks forward (back-to-front)
         while (cx != nx || cy != ny) {
             const int px = cx - dx;
@@ -249,7 +275,7 @@ class Game {
             // if there is a rock at source, move it to destination
             if (m_tiles[py][px].Contains(TileType::Rock)) {
                 m_tiles[cy][cx].Push(TileType::Rock);
-                m_tiles[py][px].Pop();
+                m_tiles[py][px].Remove(TileType::Rock);
             }
 
             cx = px;
@@ -257,7 +283,7 @@ class Game {
         }
 
         // move player
-        m_tiles[m_player.y][m_player.x].Pop();
+        m_tiles[m_player.y][m_player.x].Remove(TileType::Player);
         m_tiles[ny][nx].Push(TileType::Player);
         m_player.x = nx;
         m_player.y = ny;
@@ -267,22 +293,55 @@ class Game {
         }
     }
 
-  private:
+    void SaveState() {
+        size_t index = (m_historyStart + m_historyCount) % MAX_HISTORY;
+
+        m_history[index] = GameState(m_tiles, m_player, m_isWin);
+
+        if (m_historyCount < MAX_HISTORY) {
+            m_historyCount++;
+        } else {
+            m_historyStart = (m_historyStart + 1) % MAX_HISTORY;
+        }
+    }
+
+    void Undo() {
+        if (m_historyCount == 0) {
+            return;
+        }
+
+        size_t index = (m_historyStart + m_historyCount - 1) % MAX_HISTORY;
+
+        m_tiles = m_history[index].tiles;
+        m_player = m_history[index].player;
+        m_isWin = m_history[index].isWin;
+
+        m_historyCount--;
+    }
+
+    struct GameState {
+        std::array<std::array<Tile, LEVEL_WIDTH>, LEVEL_HEIGHT> tiles;
+        Vec2i player;
+        bool isWin;
+    };
+
     std::array<std::array<Tile, LEVEL_WIDTH>, LEVEL_HEIGHT> m_tiles;
     Vec2i m_player; // index into m_tiles
 
-    std::vector<int> m_undoStack;
-
     int m_levelNum = 1;
     bool m_isWin = false;
+
+    std::array<GameState, MAX_HISTORY> m_history;
+    size_t m_historyStart = 0; // oldest saved
+    size_t m_historyCount = 0; // how many valid snapshots
 };
 
 int main() {
-    Game game;
+    auto game = std::make_unique<Game>();
 
     while (!WindowShouldClose()) {
-        game.Update();
-        game.Draw();
+        game->Update();
+        game->Draw();
     }
 
     return 0;

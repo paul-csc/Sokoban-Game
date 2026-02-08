@@ -8,12 +8,18 @@ namespace BabaIsYou {
 Game::Game() {
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Sokoban");
     SetTargetFPS(60);
-    LoadLevel(m_levelNum);
+
+    m_levelManager.LoadLevel(m_currentState);
+    Reset();
 
     m_rules.Add(ObjectType::Baba, Property::You);
     m_rules.Add(ObjectType::Wall, Property::Stop);
     m_rules.Add(ObjectType::Flag, Property::Win);
     m_rules.Add(ObjectType::Rock, Property::Push);
+
+    for (ObjectType i = ObjectType::TextBaba; i <= ObjectType::NumType; ++i) {
+        m_rules.Add(i, Property::Push);
+    }
 }
 
 Game::~Game() {
@@ -28,7 +34,7 @@ void Game::Loop() {
 }
 
 void Game::Update() {
-    if (!m_isWin) {
+    if (!m_currentState.isWin) {
         if (IsKeyPressed(KEY_W)) {
             TryMove(0, -1);
         } else if (IsKeyPressed(KEY_S)) {
@@ -41,11 +47,14 @@ void Game::Update() {
     }
 
     if (IsKeyPressed(KEY_R)) {
-        LoadLevel(m_levelNum);
-    } else if (IsKeyPressed(KEY_N) && m_levelNum < NUM_LEVEL) {
-        LoadLevel(++m_levelNum);
-    } else if (IsKeyPressed(KEY_P) && m_levelNum > 1) {
-        LoadLevel(--m_levelNum);
+        m_levelManager.LoadLevel(m_currentState);
+        Reset();
+    } else if (IsKeyPressed(KEY_N)) {
+        m_levelManager.NextLevel(m_currentState);
+        Reset();
+    } else if (IsKeyPressed(KEY_P)) {
+        m_levelManager.PreviousLevel(m_currentState);
+        Reset();
     } else if (IsKeyPressed(KEY_X)) {
         Undo();
     }
@@ -57,6 +66,7 @@ void Game::Draw() const {
 
     for (int y = 0; y < LEVEL_HEIGHT; ++y) {
         for (int x = 0; x < LEVEL_WIDTH; ++x) {
+            const Tile& tile = m_currentState.tiles[y][x];
             Rectangle r = { x * TILE_PIXEL_SIZE, y * TILE_PIXEL_SIZE, TILE_PIXEL_SIZE,
                 TILE_PIXEL_SIZE };
 
@@ -64,7 +74,7 @@ void Game::Draw() const {
             DrawRectangleLines(
                 (int)r.x, (int)r.y, (int)r.width, (int)r.height, { 30, 30, 30, 255 });
 
-            for (const auto object : m_tiles[y][x]) {
+            for (const auto object : tile) {
                 if (object == ObjectType::Wall) {
                     DrawRectangleRec(r, DARKGRAY);
                 } else if (object == ObjectType::Rock) {
@@ -82,12 +92,17 @@ void Game::Draw() const {
                     // eyes
                     DrawRectangleRec({ r.x + 13, r.y + 15, 7, 7 }, BLACK);
                     DrawRectangleRec({ r.x + TILE_PIXEL_SIZE - 20, r.y + 15, 7, 7 }, BLACK);
+                } else if (IsText(object)) {
+                    DrawRectangleRounded(
+                        { r.x + 6.0f, r.y + 6.0f, TILE_PIXEL_SIZE - 12, TILE_PIXEL_SIZE - 12 },
+                        0.3f, 6, WHITE);
+                    DrawText(TypeToStr(object).c_str(), r.x + 6.0f, r.y + 6.0f, 20, BLACK);
                 }
             }
         }
     }
 
-    if (m_isWin) {
+    if (m_currentState.isWin) {
         DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, { 50, 50, 50, 150 });
         DrawText("You Win!", SCREEN_WIDTH / 2 - 100, SCREEN_HEIGHT / 2 - 25, 50, GREEN);
     }
@@ -95,30 +110,9 @@ void Game::Draw() const {
     EndDrawing();
 }
 
-void Game::LoadLevel(int number) {
-    number--;
-    assert(number >= 0 && number < NUM_LEVEL);
-
+void Game::Reset() {
     m_historyStart = 0;
     m_historyCount = 0;
-
-    m_isWin = false;
-
-    for (int y = 0; y < LEVEL_HEIGHT; ++y) {
-        for (int x = 0; x < LEVEL_WIDTH; ++x) {
-            m_tiles[y][x] = Tile{};
-
-            switch (GetLevel(number)[y][x]) {
-                case '#': m_tiles[y][x].Push(ObjectType::Wall); break;
-                case 'R': m_tiles[y][x].Push(ObjectType::Rock); break;
-                case 'F': m_tiles[y][x].Push(ObjectType::Flag); break;
-                case '@': m_tiles[y][x].Push(ObjectType::Baba); break;
-                case ' ': break;
-                default: assert(false); break;
-            }
-        }
-    }
-
     SaveState();
 }
 
@@ -148,7 +142,7 @@ void Game::TryMove(int dx, int dy) {
     std::vector<std::pair<Vec2i, ObjectType>> yous;
     for (int y = 0; y < LEVEL_HEIGHT; ++y) {
         for (int x = 0; x < LEVEL_WIDTH; ++x) {
-            for (const auto obj : m_tiles[y][x]) {
+            for (const auto obj : m_currentState.tiles[y][x]) {
                 if (VecContains(youObjects, obj)) {
                     yous.emplace_back(Vec2i{ x, y }, obj);
                 }
@@ -170,20 +164,20 @@ void Game::TryMove(int dx, int dy) {
         const int nx = pos.x + dx;
         const int ny = pos.y + dy;
 
-        if (!InBounds(nx, ny) || m_tiles[ny][nx].Contains(stopObjects)) {
+        if (!InBounds(nx, ny) || m_currentState.tiles[ny][nx].Contains(stopObjects)) {
             continue;
         }
 
         int cx = nx;
         int cy = ny;
 
-        while (InBounds(cx, cy) && !m_tiles[cy][cx].IsEmpty() &&
-            AllPushable(m_tiles[cy][cx], pushObjects)) {
+        while (InBounds(cx, cy) && !m_currentState.tiles[cy][cx].IsEmpty() &&
+            AllPushable(m_currentState.tiles[cy][cx], pushObjects)) {
             cx += dx;
             cy += dy;
         }
 
-        if (!InBounds(cx, cy) || m_tiles[cy][cx].Contains(stopObjects)) {
+        if (!InBounds(cx, cy) || m_currentState.tiles[cy][cx].Contains(stopObjects)) {
             continue;
         }
 
@@ -192,8 +186,8 @@ void Game::TryMove(int dx, int dy) {
             const int prevX = cx - dx;
             const int prevY = cy - dy;
 
-            auto& source = m_tiles[prevY][prevX];
-            auto& dest = m_tiles[cy][cx];
+            auto& source = m_currentState.tiles[prevY][prevX];
+            auto& dest = m_currentState.tiles[cy][cx];
 
             for (const auto obj : source) {
                 if (VecContains(pushObjects, obj)) {
@@ -207,18 +201,19 @@ void Game::TryMove(int dx, int dy) {
         }
 
         // move the You object
-        auto& source_you = m_tiles[pos.y][pos.x];
+        auto& source_you = m_currentState.tiles[pos.y][pos.x];
         if (source_you.Remove(type)) {
-            m_tiles[ny][nx].Push(type);
+            m_currentState.tiles[ny][nx].Push(type);
         }
     }
 
     // check for win
-    m_isWin = false;
+    m_currentState.isWin = false;
     for (int y = 0; y < LEVEL_HEIGHT; ++y) {
         for (int x = 0; x < LEVEL_WIDTH; ++x) {
-            if (m_tiles[y][x].Contains(youObjects) && m_tiles[y][x].Contains(winObjects)) {
-                m_isWin = true;
+            if (m_currentState.tiles[y][x].Contains(youObjects) &&
+                m_currentState.tiles[y][x].Contains(winObjects)) {
+                m_currentState.isWin = true;
                 return;
             }
         }
@@ -228,7 +223,7 @@ void Game::TryMove(int dx, int dy) {
 void Game::SaveState() {
     size_t index = (m_historyStart + m_historyCount) % MAX_HISTORY;
 
-    m_history[index] = GameState(m_tiles, m_isWin);
+    m_history[index] = GameState(m_currentState.tiles, m_currentState.isWin);
 
     if (m_historyCount < MAX_HISTORY) {
         m_historyCount++;
@@ -238,8 +233,8 @@ void Game::SaveState() {
 }
 
 void Game::LoadState(const GameState& gs) {
-    m_tiles = gs.tiles;
-    m_isWin = gs.isWin;
+    m_currentState.tiles = gs.tiles;
+    m_currentState.isWin = gs.isWin;
 }
 
 void Game::Undo() {

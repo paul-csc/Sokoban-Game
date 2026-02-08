@@ -8,7 +8,6 @@
 
 namespace BabaIsYou {
 
-constexpr float TILE_PIXEL_SIZE = 48.0f;
 constexpr int SCREEN_WIDTH = TILE_PIXEL_SIZE * LEVEL_WIDTH;
 constexpr int SCREEN_HEIGHT = TILE_PIXEL_SIZE * LEVEL_HEIGHT;
 constexpr size_t MAX_HISTORY = 512;
@@ -24,7 +23,7 @@ class Game {
     void Update();
     void Draw() const;
 
-    void LoadLevel(int number);
+    void Reset();
 
     static bool InBounds(int x, int y);
     static bool VecContains(const std::vector<ObjectType>& v, ObjectType type);
@@ -35,10 +34,13 @@ class Game {
     void LoadState(const GameState& gs);
     void Undo();
 
-    std::array<std::array<Tile, LEVEL_WIDTH>, LEVEL_HEIGHT> m_tiles;
+    struct Vec2i {
+        int x;
+        int y;
+    };
 
-    int m_levelNum = 1;
-    bool m_isWin = false;
+    GameState m_currentState;
+    LevelManager m_levelManager;
 
     BiMap<ObjectType, Property> m_rules;
 

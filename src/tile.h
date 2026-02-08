@@ -7,10 +7,61 @@
 
 namespace BabaIsYou {
 
+constexpr float TILE_PIXEL_SIZE = 48.0f;
 constexpr size_t MAX_OBJECT_PER_TILE = 5;
 
-enum class ObjectType { Wall, Baba, Flag, Rock };
+enum class ObjectType {
+    Empty,
+    Wall,
+    Baba,
+    Flag,
+    Rock,
+
+    TextBaba,
+    TextRock,
+    TextWall,
+    TextFlag,
+    TextIs,
+    TextYou,
+    TextWin,
+    TextPush,
+    TextStop,
+
+    NumType
+};
 enum class Property { You, Stop, Win, Push };
+
+constexpr ObjectType& operator++(ObjectType& type) {
+    return type = ObjectType(int(type) + 1);
+}
+
+constexpr bool IsText(ObjectType type) {
+    return (type >= ObjectType::TextBaba && type < ObjectType::NumType);
+}
+
+inline std::string TypeToStr(ObjectType type) {
+    std::string str;
+    if (type == ObjectType::TextBaba) {
+        str = "baba";
+    } else if (type == ObjectType::TextRock) {
+        str = "rock";
+    } else if (type == ObjectType::TextWall) {
+        str = "wall";
+    } else if (type == ObjectType::TextFlag) {
+        str = "flag";
+    } else if (type == ObjectType::TextIs) {
+        str = "is";
+    } else if (type == ObjectType::TextYou) {
+        str = "you";
+    } else if (type == ObjectType::TextWin) {
+        str = "win";
+    } else if (type == ObjectType::TextPush) {
+        str = "push";
+    } else if (type == ObjectType::TextStop) {
+        str = "stop";
+    }
+    return str;
+}
 
 class Tile {
   public:
